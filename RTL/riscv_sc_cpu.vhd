@@ -6,7 +6,7 @@
 -- Author      : Riccardo De Leoni
 -- Company     : User Company Name
 -- Created     : Sun May  3 10:13:12 2026
--- Last update : Sun May  3 10:13:49 2026
+-- Last update : Sun May  3 19:00:14 2026
 -- Platform    : Default Part Number
 -- Standard    : VHDL-2008 
 --------------------------------------------------------------------------------
@@ -70,12 +70,34 @@ signal PC       : std_logic_vector(31 downto 0) := (others => '0');
 -- TEST ROM PER LA JAL
 --------------------------------------------------------------------------------
 signal instr_memory : istr_mem_t := (
-    0  => x"00A00113",   -- addi x2, x0, 10
-    1  => x"00C000EF",   -- jal  x1, 12       ; Salta all'istruzione 4 (12 byte in avanti)
-    2  => x"06300193",   -- addi x3, x0, 99   ; Istruzione fantasma (non deve eseguirsi)
-    3  => x"00000463",   -- beq  x0, x0, 8    ; Se fallisce il salto, vai all'halt
-    4  => x"02A00213",   -- addi x4, x0, 42   ; <-- TARGET DELLA JAL
-    5  => x"00000063",   -- beq  x0, x0, 0    ; halt infinito
+    -- 1. TEST ALU (R-Type e I-Type)
+    0  => x"00F00093",   -- [PC=0]  addi x1, x0, 15   ; x1 = 15
+    1  => x"00A00113",   -- [PC=4]  addi x2, x0, 10   ; x2 = 10
+    2  => x"002081B3",   -- [PC=8]  add  x3, x1, x2   ; x3 = 25 (0x19)
+    3  => x"40208233",   -- [PC=12] sub  x4, x1, x2   ; x4 = 5  (0x05)
+    4  => x"0020F2B3",   -- [PC=16] and  x5, x1, x2   ; x5 = 10 (0x0A)
+    5  => x"0020E333",   -- [PC=20] or   x6, x1, x2   ; x6 = 15 (0x0F)
+
+    -- 2. TEST MEMORY (Load e Store)
+    6  => x"00302223",   -- [PC=24] sw   x3, 4(x0)    ; Salva 25 in Memoria Dati[4]
+    7  => x"00402383",   -- [PC=28] lw   x7, 4(x0)    ; x7 legge 25 dalla memoria
+
+    -- 3. TEST BRANCHING
+    8  => x"00208463",   -- [PC=32] beq  x1, x2, 8    ; 15 == 10? FALSO. Non salta.
+    9  => x"00608463",   -- [PC=36] beq  x1, x6, 8    ; 15 == 15? VERO! Salta di 8 byte (2 instr)
+    10 => x"3E700413",   -- [PC=40] addi x8, x0, 999  ; DEVE ESSERE SALTATA (x8 resterà 0)
+
+    -- 4. TEST JAL e JALR
+    11 => x"00C004EF",   -- [PC=44] jal  x9, 12       ; Salta a PC=56. Salva PC+4 (48) in x9
+    12 => x"02A00513",   -- [PC=48] addi x10, x0, 42  ; <--- PUNTO DI RITORNO DALLA JALR
+    13 => x"00000863",   -- [PC=52] beq  x0, x0, 16   ; Salta a PC=68 (Halt) per finire il programma
+    14 => x"04D00593",   -- [PC=56] addi x11, x0, 77  ; <--- TARGET DELLA JAL (x11 = 77)
+    15 => x"00048667",   -- [PC=60] jalr x12, 0(x9)   ; Torna all'indirizzo in x9 (48). Salva 64 in x12
+    16 => x"00100693",   -- [PC=64] addi x13, x0, 1   ; DEVE ESSERE SALTATA (x13 resterà 0)
+    
+    -- 5. HALT
+    17 => x"00000063",   -- [PC=68] beq  x0, x0, 0    ; Halt infinito
+    
     others => x"00000000"
 );
 signal data_memory : data_mem_t := (
@@ -121,7 +143,7 @@ constant OP_STORE : std_logic_vector(6 downto 0) := "0100011";
 constant OP_LOAD  : std_logic_vector(6 downto 0) := "0000011"; 
 constant OP_BRANCH: std_logic_vector(6 downto 0) := "1100011";
 constant OP_IMM   : std_logic_vector(6 downto 0) := "0010011";
-constant OP_JAL  : std_logic_vector(6 downto 0) := "1101111";
+constant OP_JAL   : std_logic_vector(6 downto 0) := "1101111";
 constant OP_JALR  : std_logic_vector(6 downto 0) := "1100111";
 ----------------------------------------------------------------------------
 -- funct3 & funct7
@@ -365,7 +387,7 @@ end process;
 -- 9. BRENCH | JAL | JALR LOGIC
 -----------------------------------------------------------------------------
 PC_target <= std_logic_vector(signed(PC)+signed(from_ImmGen));
-PC_ret    <= (ALU_result(31 downto 0) & '0');
+PC_ret    <= (ALU_result(31 downto 1) & '0');
 -- MA QUINDI BISOGNA SHIFTARE ???
 -----------------------------------------------------------------------------
 -- 10. IMMEDIATE GENERATE
